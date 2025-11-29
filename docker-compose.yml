@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ./AspendoraFileShare
+      dockerfile: Dockerfile
+    container_name: file-share-blazor
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ConnectionStrings__DefaultConnection=Host=file-share-blazor-db;Port=5432;Database=fileshare;Username=fileshare;Password=${POSTGRES_PASSWORD}
+      - AzureAd__ClientId=${AZURE_AD_CLIENT_ID}
+      - AzureAd__ClientSecret=${AZURE_AD_CLIENT_SECRET}
+      - S3__AccessKey=${S3_ACCESS_KEY}
+      - S3__SecretKey=${S3_SECRET_KEY}
+      - VIRTUAL_HOST=share.aspendora.com
+      - LETSENCRYPT_HOST=share.aspendora.com
+      - LETSENCRYPT_EMAIL=vultr@aspendora.com
+    ports:
+      - "3001:8080"
+    networks:
+      - aspendora-net
+      - proxy-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: file-share-blazor-db
+    environment:
+      - POSTGRES_DB=fileshare
+      - POSTGRES_USER=fileshare
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - aspendora-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fileshare"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  aspendora-net:
+    driver: bridge
+  proxy-network:
+    external: true
+
+volumes:
+  postgres-data:

@@ -1,0 +1,79 @@
+@page "/login"
+@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Sign In - Aspendora File Share</PageTitle>
+
+<div class="min-h-screen bg-white flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-md border-2 border-[#660000] rounded-lg p-8 bg-white shadow-lg">
+        <!-- Logo/Header -->
+        <div class="text-center mb-8">
+            <img src="/aspendora-logo.png" alt="Aspendora Technologies" class="mx-auto mb-4 h-16 w-auto" />
+            <h1 class="text-3xl font-bold text-[#660000] mb-2">Aspendora File Share</h1>
+            <p class="text-gray-600">Secure file sharing for Aspendora Technologies</p>
+        </div>
+
+        <!-- Error Message -->
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p class="text-red-800 text-sm">@errorMessage</p>
+            </div>
+        }
+
+        <!-- Sign In Button -->
+        <a href="/MicrosoftIdentity/Account/SignIn?redirectUri=/dashboard"
+           class="w-full bg-[#660000] text-white py-3 px-6 rounded-lg font-semibold hover:bg-black transition-colors duration-200 flex items-center justify-center gap-3">
+            <!-- Microsoft Logo -->
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zm12.6 0H12.6V0H24v11.4z" />
+            </svg>
+            Sign in with Microsoft
+        </a>
+
+        <!-- Info Text -->
+        <div class="mt-8 text-center text-sm text-gray-500">
+            <p>Authorized for:</p>
+            <ul class="mt-2 space-y-1">
+                <li>• aspendora.com</li>
+                <li>• 3endt.com</li>
+                <li>• ir100.com (via 3endt.com)</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-8 text-center text-sm text-gray-400">
+        <p>&copy; @DateTime.Now.Year Aspendora Technologies</p>
+    </div>
+</div>
+
+@code {
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if user is already authenticated
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/dashboard", forceLoad: true);
+        }
+
+        // Check for error query parameter
+        var uri = new Uri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var error = query["error"];
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            errorMessage = error switch
+            {
+                "AccessDenied" => "Access denied. Your account must be from aspendora.com or 3endt.com.",
+                _ => "An error occurred during sign-in. Please try again."
+            };
+        }
+    }
+}

@@ -1,0 +1,214 @@
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JSRuntime
+
+<div class="bg-white border-2 border-[#660000] rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Upload Files</h2>
+
+    <!-- Drop Zone -->
+    <div id="upload-dropzone"
+         class="drop-zone rounded-lg p-8 text-center cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors @(isUploading ? "pointer-events-none opacity-50" : "")">
+        <input type="file" id="upload-fileinput" multiple class="hidden" />
+
+        <svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+        </svg>
+        <p class="text-gray-600 mb-2">Drag and drop files here, or click to browse</p>
+        <p class="text-sm text-gray-400">Maximum 50GB per file</p>
+    </div>
+
+    <!-- Selected Files List -->
+    @if (selectedFiles.Any())
+    {
+        <div class="mt-4 space-y-2">
+            <div class="flex items-center justify-between text-sm text-gray-500 mb-2">
+                <span>@selectedFiles.Count file(s) selected</span>
+                <span>@FormatBytes(selectedFiles.Sum(f => f.Size)) total</span>
+            </div>
+
+            @foreach (var file in selectedFiles)
+            {
+                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div class="w-10 h-10 bg-[#660000] bg-opacity-10 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-900 truncate">@file.Name</p>
+                        <p class="text-xs text-gray-500">@FormatBytes(file.Size)</p>
+                    </div>
+                    @if (!isUploading)
+                    {
+                        <button @onclick="() => RemoveFile(file.Index)"
+                                class="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Progress Bar -->
+    @if (isUploading)
+    {
+        <div class="mt-4">
+            <div class="flex items-center justify-between text-sm mb-2">
+                <span class="text-gray-600">@uploadStatus</span>
+                <span class="font-medium text-[#660000]">@uploadProgress%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div class="h-full bg-[#660000] progress-bar rounded-full" style="width: @(uploadProgress)%"></div>
+            </div>
+        </div>
+    }
+
+    <!-- Upload Button -->
+    @if (selectedFiles.Any() && !isUploading)
+    {
+        <div class="mt-4">
+            <button @onclick="StartUpload"
+                    class="w-full px-6 py-3 bg-[#660000] text-white font-semibold rounded-lg hover:bg-black transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                </svg>
+                Upload & Create Share Link
+            </button>
+        </div>
+    }
+
+    <!-- Error Message -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            @errorMessage
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<UploadResult> OnUploadComplete { get; set; }
+
+    private const string DropZoneId = "upload-dropzone";
+    private const string FileInputId = "upload-fileinput";
+
+    private List<FileInfo> selectedFiles = new();
+    private bool isUploading = false;
+    private int uploadProgress = 0;
+    private string uploadStatus = "";
+    private string? errorMessage;
+    private bool jsInitialized = false;
+
+    private DotNetObjectReference<FileUpload>? dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !jsInitialized)
+        {
+            jsInitialized = true;
+            dotNetRef = DotNetObjectReference.Create(this);
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("fileUploadInterop.initialize", dotNetRef, DropZoneId, FileInputId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"JS init error: {ex.Message}");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnFilesSelected(List<FileInfo> files)
+    {
+        selectedFiles = files;
+        errorMessage = null;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnUploadProgress(int progress, int fileIndex, string fileName)
+    {
+        uploadProgress = progress;
+        uploadStatus = $"Uploading {fileName}...";
+        StateHasChanged();
+    }
+
+    private async Task RemoveFile(int index)
+    {
+        await JSRuntime.InvokeVoidAsync("fileUploadInterop.removeFile", index);
+    }
+
+    private async Task StartUpload()
+    {
+        if (!selectedFiles.Any()) return;
+
+        isUploading = true;
+        uploadProgress = 0;
+        uploadStatus = "Preparing upload...";
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Use a very long timeout for large file uploads (4 hours)
+            using var cts = new CancellationTokenSource(TimeSpan.FromHours(4));
+            var result = await JSRuntime.InvokeAsync<UploadResult>("fileUploadInterop.uploadFiles", cts.Token);
+
+            if (result.Success)
+            {
+                selectedFiles.Clear();
+                await OnUploadComplete.InvokeAsync(result);
+            }
+            else
+            {
+                errorMessage = result.Error ?? "Upload failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Upload failed: " + ex.Message;
+        }
+        finally
+        {
+            isUploading = false;
+            uploadProgress = 0;
+            uploadStatus = "";
+            StateHasChanged();
+        }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes == 0) return "0 Bytes";
+        var k = 1024.0;
+        var sizes = new[] { "Bytes", "KB", "MB", "GB", "TB" };
+        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(k));
+        return $"{Math.Round(bytes / Math.Pow(k, i), 2)} {sizes[i]}";
+    }
+
+    public void Dispose()
+    {
+        dotNetRef?.Dispose();
+    }
+
+    public class FileInfo
+    {
+        public int Index { get; set; }
+        public string Name { get; set; } = null!;
+        public long Size { get; set; }
+        public string Type { get; set; } = null!;
+    }
+
+    public class UploadResult
+    {
+        public bool Success { get; set; }
+        public string? ShareId { get; set; }
+        public string? ShortId { get; set; }
+        public string? Error { get; set; }
+    }
+}
