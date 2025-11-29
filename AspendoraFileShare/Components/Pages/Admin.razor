@@ -1,0 +1,722 @@
+@page "/admin"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using AspendoraFileShare.Data
+@using AspendoraFileShare.Services
+@using Microsoft.EntityFrameworkCore
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject ApplicationDbContext DbContext
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject HttpClient Http
+@inject S3Service S3Service
+
+<PageTitle>Admin Panel - Aspendora File Share</PageTitle>
+
+<div class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white border-b-2 border-[#660000] shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <img src="/aspendora-logo.png" alt="Aspendora" class="h-12" />
+                    <div>
+                        <h1 class="text-xl font-bold text-[#660000]">Admin Panel</h1>
+                        <p class="text-sm text-gray-500">Aspendora File Share</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard" class="text-[#660000] hover:text-black font-medium">
+                        &larr; Back to Dashboard
+                    </a>
+                    <a href="/Account/SignOut"
+                       class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium inline-block">
+                        Sign Out
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+        @if (!isAdmin)
+        {
+            <div class="bg-white border-2 border-red-500 rounded-lg p-8 text-center">
+                <svg class="w-16 h-16 text-red-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <h2 class="text-2xl font-bold text-red-600 mt-4">Access Denied</h2>
+                <p class="text-gray-600 mt-2">You do not have permission to view this page.</p>
+                <a href="/dashboard" class="inline-block mt-4 px-6 py-2 bg-[#660000] text-white rounded-lg hover:bg-black">
+                    Return to Dashboard
+                </a>
+            </div>
+        }
+        else
+        {
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                    <div class="text-3xl font-bold text-[#660000]">@totalShares</div>
+                    <div class="text-sm text-gray-500">Total Shares</div>
+                </div>
+                <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                    <div class="text-3xl font-bold text-[#660000]">@totalFiles</div>
+                    <div class="text-sm text-gray-500">Total Files</div>
+                </div>
+                <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                    <div class="text-3xl font-bold text-[#660000]">@FormatBytes(totalStorage)</div>
+                    <div class="text-sm text-gray-500">Total Storage</div>
+                </div>
+                <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                    <div class="text-3xl font-bold text-[#660000]">@totalDownloads</div>
+                    <div class="text-sm text-gray-500">Total Downloads</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-4 mb-6">
+                <button @onclick="() => activeTab = 0"
+                        class="px-4 py-2 rounded-lg font-medium @(activeTab == 0 ? "bg-[#660000] text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300")">
+                    Audit Logs
+                </button>
+                <button @onclick="() => activeTab = 1"
+                        class="px-4 py-2 rounded-lg font-medium @(activeTab == 1 ? "bg-[#660000] text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300")">
+                    All Shares
+                </button>
+                <button @onclick="async () => { activeTab = 2; await LoadUsageStats(); }"
+                        class="px-4 py-2 rounded-lg font-medium @(activeTab == 2 ? "bg-[#660000] text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300")">
+                    Usage Stats
+                </button>
+            </div>
+
+            @if (activeTab == 0)
+            {
+                <!-- Audit Logs -->
+                <div class="bg-white border-2 border-[#660000] rounded-lg overflow-hidden">
+                    <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                        <h2 class="text-lg font-semibold">Audit Logs</h2>
+                        <div class="flex items-center gap-4">
+                            <select @bind="selectedAction" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Actions</option>
+                                <option value="UPLOAD">Upload</option>
+                                <option value="SHARE">Share</option>
+                                <option value="DOWNLOAD">Download</option>
+                                <option value="DELETE">Delete</option>
+                                <option value="VIEW_ADMIN">View Admin</option>
+                            </select>
+                            <button @onclick="LoadAuditLogs" class="px-4 py-2 bg-[#660000] text-white rounded-lg hover:bg-black">
+                                Filter
+                            </button>
+                            <button @onclick="ExportLogs" class="px-4 py-2 border border-[#660000] text-[#660000] rounded-lg hover:bg-gray-50">
+                                Export JSON
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (isLoadingLogs)
+                    {
+                        <div class="p-8 text-center">
+                            <svg class="spinner w-8 h-8 text-[#660000] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <p class="text-gray-500 mt-2">Loading logs...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP Address</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    @foreach (var log in auditLogs)
+                                    {
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-3 text-sm text-gray-900">@log.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                            <td class="px-4 py-3">
+                                                <span class="px-2 py-1 text-xs font-medium rounded-full @GetActionColor(log.Action)">
+                                                    @log.Action
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 text-sm text-gray-900">@log.UserEmail</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@(log.TargetType ?? "-")</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@(log.IpAddress ?? "-")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (!auditLogs.Any())
+                        {
+                            <div class="p-8 text-center text-gray-500">
+                                No audit logs found.
+                            </div>
+                        }
+
+                        <!-- Pagination -->
+                        <div class="p-4 border-t border-gray-200 flex items-center justify-between">
+                            <div class="text-sm text-gray-500">
+                                Showing @((currentPage - 1) * pageSize + 1) - @Math.Min(currentPage * pageSize, totalLogs) of @totalLogs
+                            </div>
+                            <div class="flex gap-2">
+                                <button @onclick="PreviousPage" disabled="@(currentPage <= 1)"
+                                        class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Previous
+                                </button>
+                                <button @onclick="NextPage" disabled="@(currentPage * pageSize >= totalLogs)"
+                                        class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (activeTab == 1)
+            {
+                <!-- All Shares -->
+                <div class="bg-white border-2 border-[#660000] rounded-lg overflow-hidden">
+                    <div class="p-4 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold">All Shares</h2>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Short ID</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Files</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Downloads</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach (var share in allShares)
+                                {
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 text-sm font-mono text-[#660000]">@share.ShortId</td>
+                                        <td class="px-4 py-3 text-sm text-gray-900">@share.UserEmail</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">@share.FileCount</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">@FormatBytes(share.TotalSize)</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">@share.Downloads</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">@share.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">@share.ExpiresAt.ToLocalTime().ToString("MMM dd, yyyy")</td>
+                                        <td class="px-4 py-3">
+                                            @if (share.Deleted)
+                                            {
+                                                <span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">Deleted</span>
+                                            }
+                                            else if (share.ExpiresAt < DateTime.UtcNow)
+                                            {
+                                                <span class="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">Expired</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">Active</span>
+                                            }
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @if (!share.Deleted)
+                                            {
+                                                <button @onclick="() => DeleteShare(share.Id, share.ShortId)"
+                                                        class="px-2 py-1 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded">
+                                                    Delete
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-xs text-gray-400">-</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (!allShares.Any())
+                    {
+                        <div class="p-8 text-center text-gray-500">
+                            No shares found.
+                        </div>
+                    }
+                </div>
+            }
+            else if (activeTab == 2)
+            {
+                <!-- Usage Stats -->
+                <div class="space-y-6">
+                    <!-- Time-based Stats -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                            <div class="text-2xl font-bold text-[#660000]">@activeUsers</div>
+                            <div class="text-sm text-gray-500">Active Users</div>
+                        </div>
+                        <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                            <div class="text-2xl font-bold text-[#660000]">@sharesToday</div>
+                            <div class="text-sm text-gray-500">Shares Today</div>
+                        </div>
+                        <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                            <div class="text-2xl font-bold text-[#660000]">@sharesThisWeek</div>
+                            <div class="text-sm text-gray-500">Shares This Week</div>
+                        </div>
+                        <div class="bg-white border-2 border-[#660000] rounded-lg p-4">
+                            <div class="text-2xl font-bold text-[#660000]">@sharesThisMonth</div>
+                            <div class="text-sm text-gray-500">Shares This Month</div>
+                        </div>
+                    </div>
+
+                    <!-- Storage Breakdown -->
+                    <div class="bg-white border-2 border-[#660000] rounded-lg overflow-hidden">
+                        <div class="p-4 border-b border-gray-200">
+                            <h2 class="text-lg font-semibold">Storage by User</h2>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shares</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Files</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Storage</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Downloads</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">% of Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    @foreach (var user in userStats)
+                                    {
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-3 text-sm text-gray-900">@user.Email</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@user.ShareCount</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@user.FileCount</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@FormatBytes(user.TotalStorage)</td>
+                                            <td class="px-4 py-3 text-sm text-gray-500">@user.TotalDownloads</td>
+                                            <td class="px-4 py-3">
+                                                <div class="flex items-center gap-2">
+                                                    <div class="w-24 bg-gray-200 rounded-full h-2">
+                                                        <div class="bg-[#660000] h-2 rounded-full" style="width: @(totalStorage > 0 ? Math.Round((double)user.TotalStorage / totalStorage * 100, 1) : 0)%"></div>
+                                                    </div>
+                                                    <span class="text-xs text-gray-500">@(totalStorage > 0 ? Math.Round((double)user.TotalStorage / totalStorage * 100, 1) : 0)%</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        @if (!userStats.Any())
+                        {
+                            <div class="p-8 text-center text-gray-500">
+                                No user data available.
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="bg-white border-2 border-[#660000] rounded-lg overflow-hidden">
+                        <div class="p-4 border-b border-gray-200">
+                            <h2 class="text-lg font-semibold">Recent Activity (Last 7 Days)</h2>
+                        </div>
+                        <div class="p-4">
+                            <div class="grid grid-cols-7 gap-2">
+                                @foreach (var day in dailyActivity)
+                                {
+                                    <div class="text-center">
+                                        <div class="text-xs text-gray-500 mb-1">@day.Date.ToString("ddd")</div>
+                                        <div class="bg-gray-100 rounded-lg p-3">
+                                            <div class="text-lg font-bold text-[#660000]">@day.ShareCount</div>
+                                            <div class="text-xs text-gray-500">shares</div>
+                                        </div>
+                                        <div class="text-xs text-gray-400 mt-1">@FormatBytes(day.TotalSize)</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- File Type Distribution -->
+                    <div class="bg-white border-2 border-[#660000] rounded-lg overflow-hidden">
+                        <div class="p-4 border-b border-gray-200">
+                            <h2 class="text-lg font-semibold">File Type Distribution</h2>
+                        </div>
+                        <div class="p-4">
+                            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                @foreach (var fileType in fileTypeStats)
+                                {
+                                    <div class="bg-gray-50 rounded-lg p-3 text-center">
+                                        <div class="text-lg font-bold text-[#660000]">@fileType.Count</div>
+                                        <div class="text-sm text-gray-600">@fileType.Type</div>
+                                        <div class="text-xs text-gray-400">@FormatBytes(fileType.TotalSize)</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        @if (!fileTypeStats.Any())
+                        {
+                            <div class="p-8 text-center text-gray-500">
+                                No file data available.
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </main>
+</div>
+
+@code {
+    private bool isAdmin = false;
+    private int activeTab = 0;
+
+    // Stats
+    private int totalShares = 0;
+    private int totalFiles = 0;
+    private long totalStorage = 0;
+    private int totalDownloads = 0;
+
+    // Audit logs
+    private List<AuditLogDto> auditLogs = new();
+    private bool isLoadingLogs = true;
+    private string selectedAction = "";
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private int totalLogs = 0;
+
+    // All shares
+    private List<ShareDto> allShares = new();
+
+    // Usage stats
+    private int activeUsers = 0;
+    private int sharesToday = 0;
+    private int sharesThisWeek = 0;
+    private int sharesThisMonth = 0;
+    private List<UserStatsDto> userStats = new();
+    private List<DailyActivityDto> dailyActivity = new();
+    private List<FileTypeStatsDto> fileTypeStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            isAdmin = await AuthService.IsAdminAsync(user);
+
+            if (isAdmin)
+            {
+                // Log admin view
+                var dbUser = await AuthService.GetOrCreateUserAsync(user);
+                await AuthService.LogAuditAsync("VIEW_ADMIN", dbUser);
+
+                // Load stats
+                await LoadStats();
+                await LoadAuditLogs();
+                await LoadAllShares();
+            }
+        }
+    }
+
+    private async Task LoadStats()
+    {
+        totalShares = await DbContext.ShareLinks.CountAsync(s => !s.Deleted);
+        totalFiles = await DbContext.Files.CountAsync();
+        totalStorage = await DbContext.Files.SumAsync(f => f.FileSize);
+        totalDownloads = await DbContext.ShareLinks.SumAsync(s => s.Downloads);
+    }
+
+    private async Task LoadAuditLogs()
+    {
+        isLoadingLogs = true;
+
+        var query = DbContext.AuditLogs.AsQueryable();
+
+        if (!string.IsNullOrEmpty(selectedAction))
+        {
+            query = query.Where(l => l.Action == selectedAction);
+        }
+
+        totalLogs = await query.CountAsync();
+
+        auditLogs = await query
+            .OrderByDescending(l => l.CreatedAt)
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .Select(l => new AuditLogDto
+            {
+                Id = l.Id,
+                Action = l.Action,
+                UserEmail = l.UserEmail,
+                UserTenant = l.UserTenant,
+                TargetId = l.TargetId,
+                TargetType = l.TargetType,
+                IpAddress = l.IpAddress,
+                CreatedAt = l.CreatedAt
+            })
+            .ToListAsync();
+
+        isLoadingLogs = false;
+    }
+
+    private async Task LoadAllShares()
+    {
+        allShares = await DbContext.ShareLinks
+            .Include(s => s.Files)
+            .Include(s => s.User)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(100)
+            .Select(s => new ShareDto
+            {
+                Id = s.Id,
+                ShortId = s.ShortId,
+                UserEmail = s.User != null ? s.User.Email : "Unknown",
+                FileCount = s.Files.Count,
+                TotalSize = s.Files.Sum(f => f.FileSize),
+                Downloads = s.Downloads,
+                CreatedAt = s.CreatedAt,
+                ExpiresAt = s.ExpiresAt,
+                Deleted = s.Deleted
+            })
+            .ToListAsync();
+    }
+
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadAuditLogs();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (currentPage * pageSize < totalLogs)
+        {
+            currentPage++;
+            await LoadAuditLogs();
+        }
+    }
+
+    private void ExportLogs()
+    {
+        Navigation.NavigateTo($"/api/admin/logs?action={selectedAction}&format=json", forceLoad: true);
+    }
+
+    private string GetActionColor(string action) => action switch
+    {
+        "UPLOAD" => "bg-blue-100 text-blue-800",
+        "SHARE" => "bg-purple-100 text-purple-800",
+        "DOWNLOAD" => "bg-green-100 text-green-800",
+        "DELETE" => "bg-red-100 text-red-800",
+        "VIEW_ADMIN" => "bg-gray-100 text-gray-800",
+        _ => "bg-gray-100 text-gray-800"
+    };
+
+    private string TruncateTenant(string tenant)
+    {
+        if (string.IsNullOrEmpty(tenant)) return "-";
+        return tenant.Length > 8 ? tenant.Substring(0, 8) + "..." : tenant;
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes == 0) return "0 B";
+        var k = 1024.0;
+        var sizes = new[] { "B", "KB", "MB", "GB", "TB" };
+        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(k));
+        return $"{Math.Round(bytes / Math.Pow(k, i), 1)} {sizes[i]}";
+    }
+
+    private async Task DeleteShare(string shareId, string shortId)
+    {
+        try
+        {
+            var shareLink = await DbContext.ShareLinks
+                .FirstOrDefaultAsync(s => s.Id == shareId);
+
+            if (shareLink == null) return;
+
+            // Delete files from S3
+            await S3Service.DeleteShareFilesAsync(shareId);
+
+            // Mark as deleted
+            shareLink.Deleted = true;
+            shareLink.DeletedAt = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+
+            // Log audit
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var dbUser = await AuthService.GetOrCreateUserAsync(authState.User);
+            await AuthService.LogAuditAsync("ADMIN_DELETE", dbUser, shareId, "shareLink");
+
+            // Refresh the list
+            await LoadStats();
+            await LoadAllShares();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting share: {ex.Message}");
+        }
+    }
+
+    private async Task LoadUsageStats()
+    {
+        var now = DateTime.UtcNow;
+        var startOfToday = DateTime.SpecifyKind(now.Date, DateTimeKind.Utc);
+        var startOfWeek = DateTime.SpecifyKind(now.AddDays(-(int)now.DayOfWeek).Date, DateTimeKind.Utc);
+        var startOfMonth = DateTime.SpecifyKind(new DateTime(now.Year, now.Month, 1), DateTimeKind.Utc);
+
+        // Time-based share counts
+        activeUsers = await DbContext.Users.CountAsync();
+        sharesToday = await DbContext.ShareLinks.CountAsync(s => s.CreatedAt >= startOfToday && !s.Deleted);
+        sharesThisWeek = await DbContext.ShareLinks.CountAsync(s => s.CreatedAt >= startOfWeek && !s.Deleted);
+        sharesThisMonth = await DbContext.ShareLinks.CountAsync(s => s.CreatedAt >= startOfMonth && !s.Deleted);
+
+        // User stats with storage breakdown
+        userStats = await DbContext.Users
+            .Select(u => new UserStatsDto
+            {
+                Email = u.Email,
+                ShareCount = u.ShareLinks.Count(s => !s.Deleted),
+                FileCount = u.ShareLinks.Where(s => !s.Deleted).SelectMany(s => s.Files).Count(),
+                TotalStorage = u.ShareLinks.Where(s => !s.Deleted).SelectMany(s => s.Files).Sum(f => f.FileSize),
+                TotalDownloads = u.ShareLinks.Where(s => !s.Deleted).Sum(s => s.Downloads)
+            })
+            .Where(u => u.ShareCount > 0)
+            .OrderByDescending(u => u.TotalStorage)
+            .Take(20)
+            .ToListAsync();
+
+        // Daily activity for last 7 days
+        var sevenDaysAgo = DateTime.SpecifyKind(now.AddDays(-6).Date, DateTimeKind.Utc);
+        var dailyData = await DbContext.ShareLinks
+            .Where(s => s.CreatedAt >= sevenDaysAgo && !s.Deleted)
+            .Include(s => s.Files)
+            .ToListAsync();
+
+        dailyActivity = Enumerable.Range(0, 7)
+            .Select(i => sevenDaysAgo.AddDays(i))
+            .Select(date => new DailyActivityDto
+            {
+                Date = date,
+                ShareCount = dailyData.Count(s => s.CreatedAt.Date == date),
+                TotalSize = dailyData.Where(s => s.CreatedAt.Date == date).SelectMany(s => s.Files).Sum(f => f.FileSize)
+            })
+            .ToList();
+
+        // File type distribution
+        var files = await DbContext.Files.ToListAsync();
+        fileTypeStats = files
+            .GroupBy(f => GetFileCategory(f.MimeType, f.FileName))
+            .Select(g => new FileTypeStatsDto
+            {
+                Type = g.Key,
+                Count = g.Count(),
+                TotalSize = g.Sum(f => f.FileSize)
+            })
+            .OrderByDescending(f => f.Count)
+            .Take(12)
+            .ToList();
+
+        StateHasChanged();
+    }
+
+    private string GetFileCategory(string? mimeType, string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        var mime = mimeType?.ToLowerInvariant() ?? "";
+
+        if (mime.StartsWith("image/") || new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg" }.Contains(ext))
+            return "Images";
+        if (mime.StartsWith("video/") || new[] { ".mp4", ".mov", ".avi", ".mkv", ".wmv" }.Contains(ext))
+            return "Videos";
+        if (mime.StartsWith("audio/") || new[] { ".mp3", ".wav", ".ogg", ".flac" }.Contains(ext))
+            return "Audio";
+        if (mime == "application/pdf" || ext == ".pdf")
+            return "PDFs";
+        if (new[] { ".doc", ".docx", ".odt", ".rtf" }.Contains(ext) || mime.Contains("word"))
+            return "Documents";
+        if (new[] { ".xls", ".xlsx", ".csv", ".ods" }.Contains(ext) || mime.Contains("spreadsheet"))
+            return "Spreadsheets";
+        if (new[] { ".ppt", ".pptx", ".odp" }.Contains(ext) || mime.Contains("presentation"))
+            return "Presentations";
+        if (new[] { ".zip", ".rar", ".7z", ".tar", ".gz" }.Contains(ext) || mime.Contains("zip") || mime.Contains("archive"))
+            return "Archives";
+        if (new[] { ".exe", ".msi", ".dmg", ".app" }.Contains(ext))
+            return "Executables";
+        if (new[] { ".js", ".ts", ".py", ".cs", ".java", ".cpp", ".c", ".html", ".css", ".json" }.Contains(ext))
+            return "Code";
+        if (ext == ".txt" || mime.StartsWith("text/"))
+            return "Text";
+
+        return "Other";
+    }
+
+    private class UserStatsDto
+    {
+        public string Email { get; set; } = null!;
+        public int ShareCount { get; set; }
+        public int FileCount { get; set; }
+        public long TotalStorage { get; set; }
+        public int TotalDownloads { get; set; }
+    }
+
+    private class DailyActivityDto
+    {
+        public DateTime Date { get; set; }
+        public int ShareCount { get; set; }
+        public long TotalSize { get; set; }
+    }
+
+    private class FileTypeStatsDto
+    {
+        public string Type { get; set; } = null!;
+        public int Count { get; set; }
+        public long TotalSize { get; set; }
+    }
+
+    private class AuditLogDto
+    {
+        public string Id { get; set; } = null!;
+        public string Action { get; set; } = null!;
+        public string UserEmail { get; set; } = null!;
+        public string UserTenant { get; set; } = null!;
+        public string? TargetId { get; set; }
+        public string? TargetType { get; set; }
+        public string? IpAddress { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    private class ShareDto
+    {
+        public string Id { get; set; } = null!;
+        public string ShortId { get; set; } = null!;
+        public string UserEmail { get; set; } = null!;
+        public int FileCount { get; set; }
+        public long TotalSize { get; set; }
+        public int Downloads { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        public bool Deleted { get; set; }
+    }
+}

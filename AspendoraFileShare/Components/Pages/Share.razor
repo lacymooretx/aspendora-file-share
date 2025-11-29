@@ -1,0 +1,402 @@
+@page "/share/{ShortId}"
+@page "/s/{ShortId}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using AspendoraFileShare.Data
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Context
+@inject NavigationManager Navigation
+@inject IConfiguration Configuration
+
+<PageTitle>@(isLoading ? "Loading..." : isExpired ? "Link Expired" : "Download Files") - Aspendora File Share</PageTitle>
+
+<div class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white border-b-2 border-[#660000] shadow-sm">
+        <div class="max-w-4xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-center">
+                <img src="/aspendora-logo.png" alt="Aspendora" class="h-16" />
+            </div>
+            <h1 class="text-center text-2xl font-bold text-[#660000] mt-2">Aspendora File Share</h1>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-6 py-8">
+        @if (isLoading)
+        {
+            <div class="bg-white border-2 border-[#660000] rounded-lg p-8 text-center">
+                <div class="inline-block">
+                    <svg class="spinner w-12 h-12 text-[#660000]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+                <p class="text-gray-600 mt-4">Loading share details...</p>
+            </div>
+        }
+        else if (errorMessage != null)
+        {
+            <div class="bg-white border-2 border-red-500 rounded-lg p-8 text-center">
+                <svg class="w-16 h-16 text-red-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <h2 class="text-2xl font-bold text-red-600 mt-4">Error</h2>
+                <p class="text-gray-600 mt-2">@errorMessage</p>
+            </div>
+        }
+        else if (isExpired)
+        {
+            <div class="bg-white border-2 border-[#660000] rounded-lg p-8 text-center">
+                <svg class="w-16 h-16 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h2 class="text-2xl font-bold text-[#660000] mt-4">Link Expired</h2>
+                <p class="text-gray-600 mt-2">This share link has expired and is no longer available.</p>
+                <p class="text-gray-500 text-sm mt-4">Please contact the sender to request a new link.</p>
+            </div>
+        }
+        else if (shareData != null)
+        {
+            <!-- Sender Info -->
+            <div class="bg-white border-2 border-[#660000] rounded-lg p-6 mb-6">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 bg-[#660000] rounded-full flex items-center justify-center text-white font-bold text-xl">
+                        @(shareData.SenderName?.Substring(0, 1).ToUpper() ?? "?")
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900">
+                            @shareData.SenderName shared files with you
+                        </h2>
+                        <p class="text-sm text-gray-500">
+                            Shared on @shareData.CreatedAt.ToLocalTime().ToString("MMMM dd, yyyy")
+                        </p>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(shareData.Message))
+                {
+                    <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <p class="text-gray-700 whitespace-pre-wrap">@shareData.Message</p>
+                    </div>
+                }
+            </div>
+
+            <!-- Files List -->
+            <div class="bg-white border-2 border-[#660000] rounded-lg p-6 mb-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                    @shareData.Files.Count file@(shareData.Files.Count != 1 ? "s" : "")
+                    <span class="text-gray-500 font-normal">(@FormatBytes(shareData.TotalSize) total)</span>
+                </h3>
+
+                <div class="space-y-3">
+                    @foreach (var file in shareData.Files)
+                    {
+                        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                            <div class="w-10 h-10 bg-[#660000] bg-opacity-10 rounded-lg flex items-center justify-center">
+                                @((MarkupString)GetFileIcon(file.MimeType, file.FileName))
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 truncate">@file.FileName</p>
+                                <p class="text-xs text-gray-500">@FormatBytes(file.FileSize) &bull; @GetFileTypeLabel(file.MimeType, file.FileName)</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Download Button -->
+            <div class="text-center">
+                <button @onclick="DownloadFiles"
+                        disabled="@isDownloading"
+                        class="inline-flex items-center gap-2 px-8 py-4 bg-[#660000] text-white text-lg font-semibold rounded-lg hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    @if (isDownloading)
+                    {
+                        <svg class="spinner w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Preparing Download...</span>
+                    }
+                    else
+                    {
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        <span>Download Files</span>
+                    }
+                </button>
+
+                <p class="text-sm text-gray-500 mt-4">
+                    @if (shareData.Files.Count > 1)
+                    {
+                        <span>Files will be downloaded as a ZIP archive.</span>
+                    }
+                </p>
+
+                <div class="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Expires @shareData.ExpiresAt.ToLocalTime().ToString("MMMM dd, yyyy 'at' h:mm tt")</span>
+                </div>
+
+                @if (shareData.Downloads > 0)
+                {
+                    <p class="text-xs text-gray-400 mt-2">
+                        Downloaded @shareData.Downloads time@(shareData.Downloads != 1 ? "s" : "")
+                    </p>
+                }
+            </div>
+        }
+    </main>
+
+    <!-- Footer -->
+    <footer class="max-w-4xl mx-auto px-6 py-8 text-center text-sm text-gray-500">
+        <p>&copy; @DateTime.Now.Year Aspendora Technologies. All rights reserved.</p>
+    </footer>
+</div>
+
+@code {
+    [Parameter]
+    public string ShortId { get; set; } = null!;
+
+    private ShareData? shareData;
+    private bool isLoading = true;
+    private bool isExpired = false;
+    private bool isDownloading = false;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadShareData();
+    }
+
+    private async Task LoadShareData()
+    {
+        try
+        {
+            isLoading = true;
+
+            var shareLink = await Context.ShareLinks
+                .Include(s => s.Files)
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.ShortId == ShortId);
+
+            if (shareLink == null)
+            {
+                errorMessage = "This share link was not found. It may have been deleted or never existed.";
+                return;
+            }
+
+            if (shareLink.Deleted)
+            {
+                errorMessage = "This share link has been deleted.";
+                return;
+            }
+
+            isExpired = shareLink.ExpiresAt < DateTime.UtcNow;
+
+            shareData = new ShareData
+            {
+                ShortId = shareLink.ShortId,
+                SenderName = shareLink.User?.Name ?? shareLink.User?.Email ?? "Unknown",
+                Message = shareLink.Message,
+                CreatedAt = shareLink.CreatedAt,
+                ExpiresAt = shareLink.ExpiresAt,
+                IsExpired = isExpired,
+                Downloads = shareLink.Downloads,
+                Files = shareLink.Files.Select(f => new FileData
+                {
+                    Id = f.Id,
+                    FileName = f.FileName,
+                    FileSize = f.FileSize,
+                    MimeType = f.MimeType
+                }).ToList(),
+                TotalSize = shareLink.Files.Sum(f => f.FileSize)
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading share: {ex.Message}");
+            errorMessage = "Failed to load share details. Please try again later.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void DownloadFiles()
+    {
+        isDownloading = true;
+        // Navigate to download endpoint - browser will handle the file download
+        Navigation.NavigateTo($"/api/download/{ShortId}", forceLoad: true);
+        // Reset after a short delay (download will continue in background)
+        Task.Delay(2000).ContinueWith(_ =>
+        {
+            isDownloading = false;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes == 0) return "0 Bytes";
+        var k = 1024.0;
+        var sizes = new[] { "Bytes", "KB", "MB", "GB", "TB" };
+        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(k));
+        return $"{Math.Round(bytes / Math.Pow(k, i), 2)} {sizes[i]}";
+    }
+
+    private string GetFileIcon(string? mimeType, string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        var mime = mimeType?.ToLowerInvariant() ?? "";
+
+        // Image files
+        if (mime.StartsWith("image/") || new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico" }.Contains(ext))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>""";
+
+        // Video files
+        if (mime.StartsWith("video/") || new[] { ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm" }.Contains(ext))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>""";
+
+        // Audio files
+        if (mime.StartsWith("audio/") || new[] { ".mp3", ".wav", ".ogg", ".flac", ".aac", ".wma", ".m4a" }.Contains(ext))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>""";
+
+        // PDF
+        if (mime == "application/pdf" || ext == ".pdf")
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6M9 17h4"></path></svg>""";
+
+        // Word documents
+        if (new[] { ".doc", ".docx", ".odt", ".rtf" }.Contains(ext) || mime.Contains("word") || mime.Contains("document"))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>""";
+
+        // Spreadsheets
+        if (new[] { ".xls", ".xlsx", ".csv", ".ods" }.Contains(ext) || mime.Contains("spreadsheet") || mime.Contains("excel"))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>""";
+
+        // Presentations
+        if (new[] { ".ppt", ".pptx", ".odp" }.Contains(ext) || mime.Contains("presentation") || mime.Contains("powerpoint"))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 13v-1m4 1v-3m4 3V8M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>""";
+
+        // Archives
+        if (new[] { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz" }.Contains(ext) || mime.Contains("zip") || mime.Contains("compressed") || mime.Contains("archive"))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>""";
+
+        // Code files
+        if (new[] { ".js", ".ts", ".py", ".cs", ".java", ".cpp", ".c", ".h", ".html", ".css", ".json", ".xml", ".yaml", ".yml", ".md", ".sql", ".sh", ".ps1" }.Contains(ext) || mime.Contains("text/") || mime.Contains("javascript") || mime.Contains("json"))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>""";
+
+        // Executable/installer files
+        if (new[] { ".exe", ".msi", ".dmg", ".app", ".deb", ".rpm" }.Contains(ext))
+            return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>""";
+
+        // Default file icon
+        return """<svg class="w-5 h-5 text-[#660000]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>""";
+    }
+
+    private string GetFileTypeLabel(string? mimeType, string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        var mime = mimeType?.ToLowerInvariant() ?? "";
+
+        // Image files
+        if (mime.StartsWith("image/") || new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico" }.Contains(ext))
+            return "Image";
+
+        // Video files
+        if (mime.StartsWith("video/") || new[] { ".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm" }.Contains(ext))
+            return "Video";
+
+        // Audio files
+        if (mime.StartsWith("audio/") || new[] { ".mp3", ".wav", ".ogg", ".flac", ".aac", ".wma", ".m4a" }.Contains(ext))
+            return "Audio";
+
+        // PDF
+        if (mime == "application/pdf" || ext == ".pdf")
+            return "PDF Document";
+
+        // Word documents
+        if (new[] { ".doc", ".docx" }.Contains(ext) || mime.Contains("word"))
+            return "Word Document";
+        if (new[] { ".odt", ".rtf" }.Contains(ext))
+            return "Document";
+
+        // Spreadsheets
+        if (new[] { ".xls", ".xlsx" }.Contains(ext) || mime.Contains("excel"))
+            return "Excel Spreadsheet";
+        if (ext == ".csv")
+            return "CSV File";
+        if (ext == ".ods")
+            return "Spreadsheet";
+
+        // Presentations
+        if (new[] { ".ppt", ".pptx" }.Contains(ext) || mime.Contains("powerpoint"))
+            return "PowerPoint";
+        if (ext == ".odp")
+            return "Presentation";
+
+        // Archives
+        if (ext == ".zip") return "ZIP Archive";
+        if (ext == ".rar") return "RAR Archive";
+        if (ext == ".7z") return "7-Zip Archive";
+        if (new[] { ".tar", ".gz", ".bz2", ".xz" }.Contains(ext))
+            return "Archive";
+
+        // Code files
+        if (ext == ".js") return "JavaScript";
+        if (ext == ".ts") return "TypeScript";
+        if (ext == ".py") return "Python";
+        if (ext == ".cs") return "C# Source";
+        if (ext == ".java") return "Java";
+        if (new[] { ".cpp", ".c", ".h" }.Contains(ext)) return "C/C++";
+        if (ext == ".html") return "HTML";
+        if (ext == ".css") return "CSS";
+        if (ext == ".json") return "JSON";
+        if (ext == ".xml") return "XML";
+        if (new[] { ".yaml", ".yml" }.Contains(ext)) return "YAML";
+        if (ext == ".md") return "Markdown";
+        if (ext == ".sql") return "SQL";
+        if (new[] { ".sh", ".ps1" }.Contains(ext)) return "Script";
+
+        // Executables
+        if (ext == ".exe") return "Windows Executable";
+        if (ext == ".msi") return "Windows Installer";
+        if (ext == ".dmg") return "macOS Installer";
+        if (ext == ".app") return "macOS App";
+        if (new[] { ".deb", ".rpm" }.Contains(ext)) return "Linux Package";
+
+        // Text files
+        if (ext == ".txt" || mime.StartsWith("text/"))
+            return "Text File";
+
+        // Default
+        if (!string.IsNullOrEmpty(ext))
+            return ext.TrimStart('.').ToUpperInvariant() + " File";
+
+        return "File";
+    }
+
+    private class ShareData
+    {
+        public string ShortId { get; set; } = null!;
+        public string SenderName { get; set; } = null!;
+        public string? Message { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        public bool IsExpired { get; set; }
+        public int Downloads { get; set; }
+        public List<FileData> Files { get; set; } = new();
+        public long TotalSize { get; set; }
+    }
+
+    private class FileData
+    {
+        public string Id { get; set; } = null!;
+        public string FileName { get; set; } = null!;
+        public long FileSize { get; set; }
+        public string? MimeType { get; set; }
+    }
+}
