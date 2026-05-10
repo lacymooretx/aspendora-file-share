@@ -10,14 +10,11 @@ public class AuditLog
     [Required]
     public string Action { get; set; } = null!; // UPLOAD, SHARE, DOWNLOAD, DELETE, VIEW_ADMIN
 
-    [Required]
-    public string UserId { get; set; } = null!;
+    public string? UserId { get; set; }
 
-    [Required]
-    public string UserEmail { get; set; } = null!;
+    public string? UserEmail { get; set; }
 
-    [Required]
-    public string UserTenant { get; set; } = null!;
+    public string? UserTenant { get; set; }
 
     public string? TargetId { get; set; }
 
@@ -32,5 +29,5 @@ public class AuditLog
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation properties
-    public virtual User User { get; set; } = null!;
+    public virtual User? User { get; set; }
 }

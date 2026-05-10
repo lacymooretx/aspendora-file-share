@@ -1,8 +1,10 @@
 using AspendoraFileShare.Data;
+using AspendoraFileShare.Data.Models;
 using AspendoraFileShare.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.IO.Compression;
+using System.Text.Json;
 
 namespace AspendoraFileShare.Controllers;
 
@@ -38,18 +40,29 @@ public class DownloadController : ControllerBase
                 return NotFound();
             }
 
-            // Increment download counter
+            // Increment download counter and log audit event
             shareLink.Downloads++;
             shareLink.LastDownloadAt = DateTime.UtcNow;
+
+            var fileNames = shareLink.Files.Select(f => f.FileName).ToList();
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Action = "DOWNLOAD",
+                TargetId = shareLink.ShortId,
+                TargetType = "ShareLink",
+                MetadataJson = JsonSerializer.Serialize(new { files = fileNames }),
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            });
+
             await _context.SaveChangesAsync();
 
-            // Single file - direct download
+            // Single file - redirect to presigned S3 URL (avoids proxying large files through the app)
             if (shareLink.Files.Count == 1)
             {
                 var file = shareLink.Files.First();
-                var stream = await _s3Service.GetFileAsync(file.S3Key);
-
-                return File(stream, file.MimeType, file.FileName);
+                var presignedUrl = _s3Service.GeneratePresignedDownloadUrl(file.S3Key, file.FileName);
+                return Redirect(presignedUrl);
             }
 
             // Multiple files - create zip
