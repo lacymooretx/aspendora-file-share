@@ -93,7 +93,28 @@ app.UseForwardedHeaders(forwardedHeadersOptions);
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // Delegate-based error handler — writes the 500 response inline so monitoring
+    // catches a real 5xx instead of the 200-rendered Razor /Error page.
+    // See uptime-kuma repo: docs/error-page-monitoring.md (Phase 2).
+    app.UseExceptionHandler(new ExceptionHandlerOptions
+    {
+        ExceptionHandler = async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "text/html; charset=utf-8";
+            var requestId = System.Diagnostics.Activity.Current?.Id ?? context.TraceIdentifier;
+            var encodedId = System.Net.WebUtility.HtmlEncode(requestId);
+            await context.Response.WriteAsync(
+                "<!DOCTYPE html><html><head><title>Error - File Share</title>"
+                + "<style>body{font-family:sans-serif;max-width:560px;margin:4rem auto;padding:0 1rem;color:#333}"
+                + "h2{color:#c00}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style></head>"
+                + "<body><h2>An error occurred while processing your request.</h2>"
+                + "<p>The team has been notified. If the problem persists, share this Request ID:</p>"
+                + "<p><code>" + encodedId + "</code></p>"
+                + "<p><a href=\"/\">Return home</a></p></body></html>");
+        },
+        AllowStatusCode404Response = true,
+    });
     app.UseHsts();
 }
 

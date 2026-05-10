@@ -31,7 +31,8 @@ public class ApplicationDbContext : DbContext
             entity.HasMany(e => e.AuditLogs)
                   .WithOne(e => e.User)
                   .HasForeignKey(e => e.UserId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .IsRequired(false)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         // ShareLink configuration

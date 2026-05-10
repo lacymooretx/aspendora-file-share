@@ -111,6 +111,24 @@ public class S3Service
         return response.ResponseStream;
     }
 
+    public string GeneratePresignedDownloadUrl(string s3Key, string fileName, int expiresInMinutes = 60)
+    {
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _bucketName,
+            Key = s3Key,
+            Verb = HttpVerb.GET,
+            Expires = DateTime.UtcNow.AddMinutes(expiresInMinutes),
+            Protocol = Protocol.HTTPS,
+            ResponseHeaderOverrides = new ResponseHeaderOverrides
+            {
+                ContentDisposition = $"attachment; filename=\"{fileName}\""
+            }
+        };
+
+        return _s3Client.GetPreSignedURL(request);
+    }
+
     public async Task DeleteFileAsync(string s3Key)
     {
         var request = new DeleteObjectRequest
