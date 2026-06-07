@@ -122,6 +122,13 @@
                                                 class="px-3 py-1.5 bg-[#660000] text-white rounded hover:bg-black transition-colors text-sm font-medium whitespace-nowrap">
                                             Copy Link
                                         </button>
+                                        <button @onclick="() => OpenInviteModal(req.ShortId)"
+                                                class="px-3 py-1.5 text-white rounded transition-colors text-sm font-medium whitespace-nowrap"
+                                                style="background-color: #2563eb;"
+                                                onmouseover="this.style.backgroundColor='#1d4ed8'"
+                                                onmouseout="this.style.backgroundColor='#2563eb'">
+                                            Send Invite
+                                        </button>
                                         @if (req.FileCount > 0)
                                         {
                                             <button @onclick="() => ToggleExpanded(req.Id)"
@@ -250,6 +257,68 @@
 <RequestModal IsVisible="@showRequestModal"
               OnClose="HandleRequestModalClose" />
 
+<!-- Send Request Invite Modal -->
+@if (showInviteModal)
+{
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg max-w-md w-full p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-[#660000]">Email This Request</h2>
+                <button @onclick="CloseInviteModal" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Recipient Email(s)</label>
+                    <textarea @bind="inviteEmails" @bind:event="oninput"
+                              placeholder="recipient1@example.com, recipient2@example.com"
+                              rows="2"
+                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#660000] focus:border-transparent"></textarea>
+                    <p class="text-xs text-gray-500 mt-1">Separate multiple email addresses with commas</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Message (Optional)</label>
+                    <textarea @bind="inviteMessage" @bind:event="oninput"
+                              placeholder="Add a personal message..."
+                              rows="3"
+                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#660000] focus:border-transparent"></textarea>
+                </div>
+
+                @if (!string.IsNullOrEmpty(inviteError))
+                {
+                    <div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <p class="text-red-800 text-sm">@inviteError</p>
+                    </div>
+                }
+
+                @if (inviteSuccess)
+                {
+                    <div class="p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <p class="text-green-800 text-sm">Request emailed successfully!</p>
+                    </div>
+                }
+
+                <div class="flex gap-3">
+                    <button @onclick="SendInvites"
+                            disabled="@(isInviting || string.IsNullOrWhiteSpace(inviteEmails))"
+                            class="flex-1 bg-[#660000] text-white py-2 px-4 rounded-lg font-semibold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed">
+                        @(isInviting ? "Sending..." : "Send")
+                    </button>
+                    <button @onclick="CloseInviteModal"
+                            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <!-- Resend Email Modal -->
 @if (showResendModal)
 {
@@ -337,6 +406,15 @@
     private bool isLoadingRequests = true;
     private string? expandedRequestId;
     private string currentUserId = "";
+
+    // Send-invite modal state
+    private bool showInviteModal = false;
+    private string inviteShortId = "";
+    private string inviteEmails = "";
+    private string inviteMessage = "";
+    private bool isInviting = false;
+    private string? inviteError;
+    private bool inviteSuccess = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -428,6 +506,110 @@
     private void DownloadSubmission(string shortId)
     {
         Navigation.NavigateTo($"/api/download/{shortId}", forceLoad: true);
+    }
+
+    private void OpenInviteModal(string shortId)
+    {
+        inviteShortId = shortId;
+        inviteEmails = "";
+        inviteMessage = "";
+        inviteError = null;
+        inviteSuccess = false;
+        showInviteModal = true;
+    }
+
+    private void CloseInviteModal()
+    {
+        showInviteModal = false;
+        inviteShortId = "";
+        inviteEmails = "";
+        inviteMessage = "";
+        inviteError = null;
+        inviteSuccess = false;
+    }
+
+    private async Task SendInvites()
+    {
+        var emails = inviteEmails
+            .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(e => e.Trim())
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Distinct()
+            .ToList();
+
+        if (!emails.Any())
+        {
+            inviteError = "At least one recipient email is required";
+            return;
+        }
+
+        var invalid = emails.Where(e => !e.Contains('@') || !e.Contains('.')).ToList();
+        if (invalid.Any())
+        {
+            inviteError = $"Invalid email format: {string.Join(", ", invalid)}";
+            return;
+        }
+
+        isInviting = true;
+        inviteError = null;
+        inviteSuccess = false;
+        StateHasChanged();
+
+        var failed = new List<string>();
+        var sent = new List<string>();
+
+        try
+        {
+            foreach (var email in emails)
+            {
+                var result = await JSRuntime.InvokeAsync<InviteResult>(
+                    "apiInterop.sendFileRequestInvite", inviteShortId, email, "", inviteMessage);
+                if (result.Success)
+                {
+                    sent.Add(email);
+                }
+                else
+                {
+                    failed.Add(email);
+                }
+            }
+
+            if (sent.Any())
+            {
+                inviteSuccess = true;
+                await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast",
+                    $"Request emailed to {sent.Count} recipient(s)", "success");
+
+                if (failed.Any())
+                {
+                    inviteError = $"Failed to send to: {string.Join(", ", failed)}";
+                }
+                else
+                {
+                    await Task.Delay(1500);
+                    CloseInviteModal();
+                }
+            }
+            else
+            {
+                inviteError = "Failed to email the request to any recipient";
+            }
+        }
+        catch (Exception ex)
+        {
+            inviteError = "Failed to send: " + ex.Message;
+        }
+        finally
+        {
+            isInviting = false;
+            StateHasChanged();
+        }
+    }
+
+    private class InviteResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
     }
 
     private async Task ToggleClose(string requestId)
