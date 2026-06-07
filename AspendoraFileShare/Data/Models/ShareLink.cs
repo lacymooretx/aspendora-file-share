@@ -32,7 +32,21 @@ public class ShareLink
 
     public DateTime? DeletedAt { get; set; }
 
+    // --- File-request submission fields ---
+    // When set, this ShareLink is an upload submission to a FileRequest rather than
+    // an outgoing share. The owner (UserId) is the requester who receives the files.
+
+    /// <summary>If non-null, this share is a submission to the given FileRequest.</summary>
+    public string? FileRequestId { get; set; }
+
+    /// <summary>Name the anonymous uploader provided (submissions only).</summary>
+    public string? SubmitterName { get; set; }
+
+    /// <summary>Email the anonymous uploader provided (submissions only).</summary>
+    public string? SubmitterEmail { get; set; }
+
     // Navigation properties
     public virtual User User { get; set; } = null!;
+    public virtual FileRequest? FileRequest { get; set; }
     public virtual ICollection<FileModel> Files { get; set; } = new List<FileModel>();
 }

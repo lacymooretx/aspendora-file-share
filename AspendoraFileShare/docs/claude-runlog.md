@@ -697,3 +697,51 @@ curl -s -o /dev/null -w '%{http_code}' https://share.aspendora.com/
 ### Summary of fixes
 1. **Sign Out**: Now uses GET request to `/Account/SignOut` via custom controller (fixes HTTP 405 error caused by Blazor Server intercepting form POSTs)
 2. **Email Greeting**: Changed from "Hi {name}," to "Howdy," (fixes empty name issue with multiple recipients)
+
+---
+
+## 2026-06-07 — Feature: Request Files from Others
+
+### Goal of the step
+Add the ability to request files from others (inverse of sharing): an authenticated
+user creates a request link; an anonymous recipient uploads files back to them.
+
+### What I did
+- Added `FileRequest` entity; extended `ShareLink` with `FileRequestId`,
+  `SubmitterName`, `SubmitterEmail` (a submission = a ShareLink owned by the requester,
+  reusing existing S3 upload/download/cleanup).
+- New `FileRequestController` (owner CRUD + anonymous gated upload flow:
+  initiate/chunk/complete).
+- New public page `/r/{shortId}` (`FileRequest.razor`), anonymous uploader component
+  (`FileRequestUpload.razor`) + `wwwroot/js/filerequest.js`, and `RequestModal.razor`.
+- Dashboard: "New File Request" button + "Request Files from Others" list (view/download
+  received files, copy link, close/reopen, delete).
+- Two new SMTP2GO email templates (request invite; files-received notification).
+- EF migration `AddFileRequests`.
+
+### Why
+User request: "we need a way to be able to request files from others."
+
+### Files changed
+- NEW: Data/Models/FileRequest.cs, Controllers/FileRequestController.cs,
+  wwwroot/js/filerequest.js, Components/FileRequestUpload.razor,
+  Components/RequestModal.razor, Components/Pages/FileRequest.razor,
+  Data/Migrations/*_AddFileRequests.cs, docs/feature-file-requests.md
+- EDIT: Data/Models/ShareLink.cs, Data/Models/User.cs, Data/ApplicationDbContext.cs,
+  Services/EmailService.cs, Components/Pages/Dashboard.razor, Components/App.razor
+
+### Commands run
+```bash
+dotnet build -c Debug                                  # 0 errors
+dotnet ef migrations add AddFileRequests --no-build    # generated
+dotnet ef migrations script ... AddFileRequests        # valid PostgreSQL diff
+```
+
+### Result / output summary
+- Build succeeds, 0 errors (3 pre-existing Admin warnings).
+- Migration generated + verified; auto-applies on deploy via Dockerfile efbundle.
+
+### Next required steps
+- Awaiting approval to deploy to VM 301 (`~/code/vultr-proxmox/services/file-share-blazor`).
+- Recommend a manual end-to-end test (create request → anonymous upload → download)
+  after deploy.

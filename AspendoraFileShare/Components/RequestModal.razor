@@ -1,0 +1,248 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+@if (IsVisible)
+{
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 modal-backdrop">
+        <div class="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto modal-content">
+            <!-- Header -->
+            <div class="border-b-2 border-[#660000] p-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-bold text-[#660000]">
+                        @(created ? "Request Link Ready" : "Request Files")
+                    </h2>
+                    <button @onclick="Close" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content -->
+            <div class="p-6 space-y-6">
+                @if (!created)
+                {
+                    <p class="text-sm text-gray-600">
+                        Create a link that lets someone upload files to you — no account required.
+                        You'll be notified by email when files arrive.
+                    </p>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">What are you requesting? *</label>
+                        <input type="text" @bind="title" @bind:event="oninput"
+                               placeholder="e.g. Please upload your signed tax documents"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#660000] focus:border-transparent" />
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Instructions (Optional)</label>
+                        <textarea @bind="message" rows="3"
+                                  placeholder="Add any details for the person uploading..."
+                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#660000] focus:border-transparent"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email request to (Optional)</label>
+                        <textarea @bind="recipientEmails" rows="2"
+                                  placeholder="recipient1@example.com, recipient2@example.com"
+                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#660000] focus:border-transparent"></textarea>
+                        <p class="text-xs text-gray-500 mt-1">Separate multiple email addresses with commas. Leave blank to just get a link.</p>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+                            <p class="text-red-800 text-sm">@errorMessage</p>
+                        </div>
+                    }
+
+                    <div class="flex gap-3">
+                        <button @onclick="CreateRequest"
+                                disabled="@(isCreating || string.IsNullOrWhiteSpace(title))"
+                                class="flex-1 bg-[#660000] text-white py-3 px-6 rounded-lg font-semibold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed">
+                            @(isCreating ? "Creating..." : "Create Request")
+                        </button>
+                        <button @onclick="Close"
+                                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                            Cancel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">Request Link</label>
+                        <div class="flex gap-2">
+                            <input type="text" value="@requestUrl" readonly
+                                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm" />
+                            <button @onclick="CopyLink"
+                                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 whitespace-nowrap">
+                                @(linkCopied ? "Copied!" : "Copy Link")
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Anyone with this link can upload files to you.</p>
+                    </div>
+
+                    @if (sentToEmails.Any())
+                    {
+                        <div class="p-4 bg-green-50 border border-green-200 rounded-lg">
+                            <p class="text-green-800 text-sm">
+                                Request emailed to @string.Join(", ", sentToEmails)
+                            </p>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+                            <p class="text-red-800 text-sm">@errorMessage</p>
+                        </div>
+                    }
+
+                    <div class="text-center">
+                        <button @onclick="Close"
+                                class="px-6 py-2 bg-[#660000] text-white rounded-lg hover:bg-black">
+                            Done
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private string title = "";
+    private string message = "";
+    private string recipientEmails = "";
+
+    private bool isCreating = false;
+    private bool created = false;
+    private bool linkCopied = false;
+    private string? errorMessage;
+    private string createdShortId = "";
+    private List<string> sentToEmails = new();
+
+    private string requestUrl => $"{Navigation.BaseUri}r/{createdShortId}";
+
+    private async Task CreateRequest()
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            errorMessage = "A title is required";
+            return;
+        }
+
+        isCreating = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await JSRuntime.InvokeAsync<CreateResult>(
+                "apiInterop.createFileRequest", title, message, (string?)null, (string?)null);
+
+            if (!result.Success || string.IsNullOrEmpty(result.ShortId))
+            {
+                errorMessage = result.Error ?? "Failed to create request";
+                return;
+            }
+
+            createdShortId = result.ShortId;
+            created = true;
+
+            // Optionally email the request to recipients.
+            var emails = recipientEmails
+                .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(e => e.Trim())
+                .Where(e => e.Contains('@') && e.Contains('.'))
+                .Distinct()
+                .ToList();
+
+            var failed = new List<string>();
+            foreach (var email in emails)
+            {
+                var sendResult = await JSRuntime.InvokeAsync<SendResult>(
+                    "apiInterop.sendFileRequestInvite", createdShortId, email, "", message);
+                if (sendResult.Success)
+                {
+                    sentToEmails.Add(email);
+                }
+                else
+                {
+                    failed.Add(email);
+                }
+            }
+
+            if (failed.Any())
+            {
+                errorMessage = $"Could not email: {string.Join(", ", failed)}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Failed to create request: " + ex.Message;
+        }
+        finally
+        {
+            isCreating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyLink()
+    {
+        try
+        {
+            var success = await JSRuntime.InvokeAsync<bool>("clipboardInterop.copyToClipboard", requestUrl);
+            if (success)
+            {
+                linkCopied = true;
+                await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Link copied to clipboard!", "success");
+                StateHasChanged();
+                await Task.Delay(2000);
+                linkCopied = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception)
+        {
+            await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Failed to copy link", "error");
+        }
+    }
+
+    private async Task Close()
+    {
+        title = "";
+        message = "";
+        recipientEmails = "";
+        created = false;
+        linkCopied = false;
+        errorMessage = null;
+        createdShortId = "";
+        sentToEmails = new();
+
+        await OnClose.InvokeAsync();
+    }
+
+    private class CreateResult
+    {
+        public bool Success { get; set; }
+        public string? ShortId { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private class SendResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+}
