@@ -68,6 +68,111 @@
             <!-- File Uploader -->
             <FileUpload OnUploadComplete="HandleUploadComplete" />
 
+            <!-- Request Files -->
+            <div class="bg-white border-2 border-[#660000] rounded-lg p-6">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900 mb-1">Request Files from Others</h2>
+                        <p class="text-sm text-gray-600">Create a link that lets someone upload files to you — no account required.</p>
+                    </div>
+                    <button @onclick="OpenRequestModal"
+                            class="px-4 py-2 bg-[#660000] text-white rounded-lg hover:bg-black transition-colors text-sm font-medium whitespace-nowrap inline-flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        New File Request
+                    </button>
+                </div>
+
+                @if (isLoadingRequests)
+                {
+                    <p class="text-gray-500 text-sm mt-4">Loading...</p>
+                }
+                else if (requests != null && requests.Any())
+                {
+                    <div class="mt-6 space-y-4">
+                        @foreach (var req in requests)
+                        {
+                            <div class="border border-gray-200 rounded-lg p-4">
+                                <div class="flex items-start justify-between gap-4">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="font-medium text-gray-900">@req.Title</span>
+                                            @if (req.Closed)
+                                            {
+                                                <span class="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">Closed</span>
+                                            }
+                                            else if (req.IsExpired)
+                                            {
+                                                <span class="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">Expired</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">Open</span>
+                                            }
+                                        </div>
+                                        <div class="text-sm text-gray-500 mt-1">
+                                            @req.FileCount file@(req.FileCount == 1 ? "" : "s") received
+                                            from @req.SubmissionCount submission@(req.SubmissionCount == 1 ? "" : "s") •
+                                            Expires @req.ExpiresAt.ToLocalTime().ToString("MMM dd, yyyy")
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-wrap justify-end">
+                                        <button @onclick="() => CopyRequestLink(req.ShortId)"
+                                                class="px-3 py-1.5 bg-[#660000] text-white rounded hover:bg-black transition-colors text-sm font-medium whitespace-nowrap">
+                                            Copy Link
+                                        </button>
+                                        @if (req.FileCount > 0)
+                                        {
+                                            <button @onclick="() => ToggleExpanded(req.Id)"
+                                                    class="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors text-sm font-medium whitespace-nowrap">
+                                                @(expandedRequestId == req.Id ? "Hide Files" : "View Files")
+                                            </button>
+                                        }
+                                        <button @onclick="() => ToggleClose(req.Id)"
+                                                class="px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors text-sm font-medium whitespace-nowrap">
+                                            @(req.Closed ? "Reopen" : "Close")
+                                        </button>
+                                        <button @onclick="() => DeleteRequest(req.Id)"
+                                                class="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm font-medium whitespace-nowrap">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @if (expandedRequestId == req.Id && req.Submissions.Any())
+                                {
+                                    <div class="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                                        @foreach (var sub in req.Submissions)
+                                        {
+                                            <div class="flex items-center justify-between gap-3 bg-gray-50 rounded-lg p-3">
+                                                <div class="flex-1 min-w-0">
+                                                    <p class="text-sm font-medium text-gray-900 truncate">
+                                                        @(string.IsNullOrEmpty(sub.SubmitterName) ? (sub.SubmitterEmail ?? "Anonymous") : sub.SubmitterName)
+                                                        @if (!string.IsNullOrEmpty(sub.SubmitterEmail) && !string.IsNullOrEmpty(sub.SubmitterName))
+                                                        {
+                                                            <span class="text-gray-400 font-normal">&lt;@sub.SubmitterEmail&gt;</span>
+                                                        }
+                                                    </p>
+                                                    <p class="text-xs text-gray-500">
+                                                        @sub.FileCount file@(sub.FileCount == 1 ? "" : "s") • @FormatBytes(sub.TotalSize) •
+                                                        @sub.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy h:mm tt")
+                                                    </p>
+                                                </div>
+                                                <button @onclick="() => DownloadSubmission(sub.ShortId)"
+                                                        class="px-3 py-1.5 bg-[#660000] text-white rounded hover:bg-black transition-colors text-sm font-medium whitespace-nowrap">
+                                                    Download
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
             <!-- Recent Shares -->
             <div class="bg-white border-2 border-[#660000] rounded-lg p-6">
                 <h2 class="text-xl font-semibold text-gray-900 mb-4">Recent Shares</h2>
@@ -140,6 +245,10 @@
 <ShareModal IsVisible="@showShareModal"
             ShortId="@uploadedShortId"
             OnClose="HandleShareModalClose" />
+
+<!-- Request Files Modal -->
+<RequestModal IsVisible="@showRequestModal"
+              OnClose="HandleRequestModalClose" />
 
 <!-- Resend Email Modal -->
 @if (showResendModal)
@@ -222,6 +331,13 @@
     private string? resendError;
     private bool resendSuccess = false;
 
+    // File requests state
+    private bool showRequestModal = false;
+    private List<RequestDto>? requests;
+    private bool isLoadingRequests = true;
+    private string? expandedRequestId;
+    private string currentUserId = "";
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -230,10 +346,137 @@
         if (user.Identity?.IsAuthenticated == true)
         {
             var dbUser = await AuthService.GetOrCreateUserAsync(user);
+            currentUserId = dbUser.Id;
             userName = dbUser.Name ?? dbUser.Email;
             isAdmin = await AuthService.IsAdminAsync(user);
 
             await LoadShares(dbUser.Id);
+            await LoadRequests(dbUser.Id);
+        }
+    }
+
+    private async Task LoadRequests(string userId)
+    {
+        isLoadingRequests = true;
+
+        requests = await DbContext.FileRequests
+            .Where(r => r.UserId == userId && !r.Deleted)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(50)
+            .Select(r => new RequestDto
+            {
+                Id = r.Id,
+                ShortId = r.ShortId,
+                Title = r.Title,
+                ExpiresAt = r.ExpiresAt,
+                Closed = r.Closed,
+                IsExpired = r.ExpiresAt < DateTime.UtcNow,
+                SubmissionCount = r.Submissions.Count(s => !s.Deleted),
+                FileCount = r.Submissions.Where(s => !s.Deleted).SelectMany(s => s.Files).Count(),
+                Submissions = r.Submissions
+                    .Where(s => !s.Deleted)
+                    .OrderByDescending(s => s.CreatedAt)
+                    .Select(s => new SubmissionDto
+                    {
+                        ShortId = s.ShortId,
+                        SubmitterName = s.SubmitterName,
+                        SubmitterEmail = s.SubmitterEmail,
+                        CreatedAt = s.CreatedAt,
+                        FileCount = s.Files.Count,
+                        TotalSize = s.Files.Sum(f => f.FileSize)
+                    }).ToList()
+            })
+            .ToListAsync();
+
+        isLoadingRequests = false;
+    }
+
+    private void OpenRequestModal() => showRequestModal = true;
+
+    private async Task HandleRequestModalClose()
+    {
+        showRequestModal = false;
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            await LoadRequests(currentUserId);
+        }
+        StateHasChanged();
+    }
+
+    private void ToggleExpanded(string requestId)
+    {
+        expandedRequestId = expandedRequestId == requestId ? null : requestId;
+    }
+
+    private async Task CopyRequestLink(string shortId)
+    {
+        var url = $"{Navigation.BaseUri}r/{shortId}";
+        try
+        {
+            var success = await JSRuntime.InvokeAsync<bool>("clipboardInterop.copyToClipboard", url);
+            if (success)
+            {
+                await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Request link copied!", "success");
+            }
+        }
+        catch (Exception)
+        {
+            await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Failed to copy link", "error");
+        }
+    }
+
+    private void DownloadSubmission(string shortId)
+    {
+        Navigation.NavigateTo($"/api/download/{shortId}", forceLoad: true);
+    }
+
+    private async Task ToggleClose(string requestId)
+    {
+        try
+        {
+            var response = await new HttpClient { BaseAddress = new Uri(Navigation.BaseUri) }
+                .PostAsJsonAsync("/api/filerequest/close", new { RequestId = requestId });
+
+            if (response.IsSuccessStatusCode && !string.IsNullOrEmpty(currentUserId))
+            {
+                await LoadRequests(currentUserId);
+                StateHasChanged();
+            }
+        }
+        catch (Exception)
+        {
+            await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Failed to update request", "error");
+        }
+    }
+
+    private async Task DeleteRequest(string requestId)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+            "Delete this file request? Any files already received through it will be permanently deleted.");
+        if (!confirmed) return;
+
+        try
+        {
+            var response = await new HttpClient { BaseAddress = new Uri(Navigation.BaseUri) }
+                .PostAsJsonAsync("/api/filerequest/delete", new { RequestId = requestId });
+
+            if (response.IsSuccessStatusCode)
+            {
+                await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Request deleted", "success");
+                if (!string.IsNullOrEmpty(currentUserId))
+                {
+                    await LoadRequests(currentUserId);
+                    StateHasChanged();
+                }
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Failed to delete request", "error");
+            }
+        }
+        catch (Exception)
+        {
+            await JSRuntime.InvokeVoidAsync("clipboardInterop.showToast", "Failed to delete request", "error");
         }
     }
 
@@ -479,6 +722,29 @@
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public int Downloads { get; set; }
+        public int FileCount { get; set; }
+        public long TotalSize { get; set; }
+    }
+
+    private class RequestDto
+    {
+        public string Id { get; set; } = null!;
+        public string ShortId { get; set; } = null!;
+        public string Title { get; set; } = null!;
+        public DateTime ExpiresAt { get; set; }
+        public bool Closed { get; set; }
+        public bool IsExpired { get; set; }
+        public int SubmissionCount { get; set; }
+        public int FileCount { get; set; }
+        public List<SubmissionDto> Submissions { get; set; } = new();
+    }
+
+    private class SubmissionDto
+    {
+        public string ShortId { get; set; } = null!;
+        public string? SubmitterName { get; set; }
+        public string? SubmitterEmail { get; set; }
+        public DateTime CreatedAt { get; set; }
         public int FileCount { get; set; }
         public long TotalSize { get; set; }
     }

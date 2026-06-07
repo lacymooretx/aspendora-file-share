@@ -20,5 +20,6 @@ public class User
 
     // Navigation properties
     public virtual ICollection<ShareLink> ShareLinks { get; set; } = new List<ShareLink>();
+    public virtual ICollection<FileRequest> FileRequests { get; set; } = new List<FileRequest>();
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 }
