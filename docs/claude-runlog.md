@@ -391,3 +391,12 @@ For production, set these via environment variables:
 ---
 
 **Next Step**: Redeploy to production with these fixes
+
+### Deploy — 2026-06-07 (VM 301)
+- Committed on branch `feature/file-requests` (0f2332a).
+- Pre-deploy safety: `pg_dump fileshare_db` → `/opt/services/file-share-blazor/fileshare_db-backup-20260607-213342.sql` (26KB, 5 tables).
+- Synced source via rsync (no --delete) to `/opt/services/file-share-blazor/AspendoraFileShare/`; left `.env` and live `docker-compose.yml` untouched.
+- `docker compose up -d --build` on VM 301 (reached via `ssh docker-apps`, ProxyJump pve-atl-01).
+- efbundle applied migration `20260607212414_AddFileRequests` (logged "Applying migration… Done.").
+- Verified: `FileRequests` table created; `ShareLinks` has FileRequestId/SubmitterName/SubmitterEmail; app "Now listening"; internal `http://localhost:3001/`=200; external `https://share.aspendora.com/`=200; anonymous `/r/{id}`=200 (no login redirect); `GET /api/filerequest/public/{unknown}`=404 JSON.
+- **DEPLOY COMPLETE.**
