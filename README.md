@@ -1,260 +1,122 @@
-# Aspendora File Share - Blazor/.NET 9 Version
+# Aspendora File Share — Blazor / .NET 9
 
-## 🎯 Project Status: Backend Complete, Frontend 30% Complete
+A secure file-sharing application for Aspendora. Users authenticate with Azure AD,
+upload files to Backblaze B2 (S3-compatible) storage, and share them via expiring
+links or email. Also supports **file requests** — inviting external people to upload
+files back to you without an account.
 
-This is a C#/Blazor rewrite of the Next.js file share application to eliminate Prisma, Next.js middleware, and deployment complexity issues.
+This is a C#/Blazor rewrite of an earlier Next.js app, built to eliminate Prisma,
+Next.js middleware, and deployment complexity.
 
-## 📁 Project Location
-**Full Path**: `/Users/lacy/code/defiant/file-share-blazor/AspendoraFileShare/`
+## 🎯 Status: Complete & Deployed in Production
 
-## 📚 Key Documentation Files
-1. **REQUIREMENTS.md** - Complete functional requirements from original Next.js app
-2. **COMPLETION-STATUS.md** - Detailed status, what works, what doesn't, deployment guide
-3. **This README** - How to pick up where we left off
+- **Live URL**: https://share.aspendora.com
+- **Hosting**: Docker container `file-share-blazor` on the production VM,
+  fronted by `nginx-proxy` (SSL via existing certs).
+- **Last deploy**: 2026-06-07 — added the File Requests feature.
 
-## 🔑 Credentials & Configuration
+> Deployment host/path/SSH details are intentionally kept out of this public repo.
+> They live in the internal ops notes, not here.
 
-### Azure AD App Registration
-**App ID**: `e407b8b3-ab87-4240-9723-31fa3c767453`
-**Client Secret**: `${AZURE_AD_CLIENT_SECRET}`
-**Tenant ID**: `common` (multi-tenant)
+> The frontend, background jobs, and deployment are all done. Earlier versions of
+> this README described a half-finished frontend; that is no longer accurate.
 
-**Credentials File**: `/tmp/file-share-credentials-FINAL.txt`
+## ✨ Features
 
-**Permissions**:
-- User.Read
-- Directory.Read.All
-- GroupMember.Read.All
+- **Azure AD login** (multi-tenant) via Microsoft Identity + Graph.
+- **Chunked / multipart uploads** to Backblaze B2 with drag-drop + progress.
+- **Share links** — single file or auto-zipped multi-file downloads, with expiry.
+- **Email delivery** of share links via SMTP2GO (with embedded logo).
+- **File Requests** — generate a public `/r/{id}` link inviting others to upload
+  files to you. No account required for the submitter. Includes an invite email
+  and "Send Invite" flow.
+- **Admin panel** (for `lacy@aspendora.com`) — audit logs, all shares, export to JSON,
+  authorized-domains management.
+- **Background jobs** — automatic cleanup of expired shares + weekly activity reports.
 
-**Recreation Script**: `/tmp/create-file-share-app-v2.sh`
+## 🏗️ Architecture
 
-### Backblaze B2 Storage
-**Endpoint**: `https://s3.us-west-004.backblazeb2.com`
-**Bucket**: `aspendora-file-share`
-**Access Key**: `${B2_ACCESS_KEY}`
-**Secret Key**: `${B2_SECRET_KEY}`
+```
+AspendoraFileShare/
+├── Components/
+│   ├── Pages/            Dashboard, Login, Share, Admin, FileRequest, Error
+│   ├── FileUpload.razor / FileRequestUpload.razor
+│   ├── ShareModal.razor  / RequestModal.razor
+│   └── App / Routes / _Imports
+├── Controllers/          Account, Upload, Download, Share, Admin, FileRequest
+├── Services/             Auth, S3, Email, Cleanup, Report
+├── Data/
+│   ├── Models/           User, ShareLink, FileModel, FileRequest, AuditLog
+│   ├── ApplicationDbContext.cs
+│   └── Migrations/       InitialCreate → MakeAuditLogUserOptional → AddFileRequests
+└── wwwroot/              app.css, js/ (filerequest.js, interop)
+```
 
-### SMTP2GO Email
-**API Key**: `${SMTP2GO_API_KEY}`
-**API URL**: `https://api.smtp2go.com/v3/email/send`
+- **Framework**: .NET 9 / Blazor Server (SignalR for interactivity)
+- **Database**: PostgreSQL via Entity Framework Core
+- **Storage**: Backblaze B2 (S3 API, `us-west-004`)
+- **Email**: SMTP2GO v3 API
 
-## ✅ What's Complete
+## 🔑 Configuration & Secrets
 
-### Backend (95%)
-- ✅ Entity Framework models (User, ShareLink, FileModel, AuditLog)
-- ✅ ApplicationDbContext with all relationships
-- ✅ S3Service - multipart uploads, download, delete
-- ✅ EmailService - SMTP2GO with logo embedding
-- ✅ AuthService - Azure AD + Microsoft Graph
-- ✅ UploadController - initiate, chunk, complete
-- ✅ DownloadController - single file + auto-zip
-- ✅ ShareController - email, list, delete
-- ✅ AdminController - audit logs, all shares
-- ✅ Program.cs - full DI and auth configuration
+Secret **values** are never stored in this repo. See **[docs/secrets-required.md](docs/secrets-required.md)**
+for the full list of required secrets, their purpose, and where to source them.
 
-### Deployment (90%)
-- ✅ Dockerfile
-- ✅ docker-compose.yml with PostgreSQL
-- ✅ .env.example template
-- ✅ nginx configuration (in COMPLETION-STATUS.md)
+Required secrets (values live in `~/.secrets/.env` locally, or the server `.env`):
 
-### Documentation (100%)
-- ✅ REQUIREMENTS.md
-- ✅ COMPLETION-STATUS.md
-- ✅ This README
+| Secret | Purpose |
+|---|---|
+| `AZURE_AD_CLIENT_SECRET` | Azure AD app authentication |
+| `B2_ACCESS_KEY` / `B2_SECRET_KEY` | Backblaze B2 storage |
+| `SMTP2GO_API_KEY` | Outbound email |
+| `POSTGRES_PASSWORD` | Database |
 
-## ⚠️ What's Incomplete
+Non-secret config (Azure App ID, B2 endpoint/bucket, SMTP URL) lives in
+`appsettings.json`. Copy `.env.example` → `.env` and populate from `~/.secrets/.env`.
 
-### Frontend (30%)
-- ⚠️ Dashboard.razor - Created but needs upload component
-- ❌ Login.razor - Not created (Microsoft Identity UI needed)
-- ❌ Share.razor - Public share page (no auth)
-- ❌ Admin.razor - Admin panel
-- ❌ File upload component with drag-drop + progress
-- ❌ Share modal component
-- ❌ JavaScript interop for clipboard, etc.
+## 🛠️ Local Development
 
-### Styling (20%)
-- ❌ Complete CSS (only stub exists)
-- ❌ Tailwind integration OR full utility classes
-- ❌ Responsive design
+```bash
+cd AspendoraFileShare
 
-### Other
-- ❌ Database migrations (needs `dotnet ef migrations add`)
-- ❌ Testing
+# one-time: EF tools
+dotnet tool install --global dotnet-ef --version 9.*
+export PATH="$PATH:$HOME/.dotnet/tools"
 
-## 🚀 How to Continue from Here
+# apply migrations to your local Postgres
+dotnet ef database update
 
-### Option 1: Finish Blazor Frontend (8-12 hours)
+dotnet run
+# https://localhost:5001
+```
 
-1. **Install EF Tools**:
-   ```bash
-   cd /Users/lacy/code/defiant/file-share-blazor/AspendoraFileShare
-   dotnet tool install --global dotnet-ef --version 9.*
-   export PATH="$PATH:$HOME/.dotnet/tools"
-   ```
+## 🐳 Deployment
 
-2. **Create Database Migration**:
-   ```bash
-   dotnet ef migrations add InitialCreate --output-dir Data/Migrations
-   ```
+The app ships as a Docker image (`AspendoraFileShare/Dockerfile`) orchestrated by
+`docker-compose.yml` (app + PostgreSQL).
 
-3. **Build and Fix Errors**:
-   ```bash
-   dotnet build
-   # Fix any compilation errors
-   ```
+```bash
+# on the production VM, in the deploy directory
+# safety: back up the DB before any deploy
+docker compose exec -T postgres pg_dump -U fileshare fileshare > fileshare-backup-$(date +%Y%m%d-%H%M%S).sql
 
-4. **Create Missing Razor Pages**:
-   - `Components/Pages/Login.razor`
-   - `Components/Pages/Share.razor`
-   - `Components/Pages/Admin.razor`
-   - `Components/FileUploadComponent.razor`
-   - `Components/ShareModalComponent.razor`
+docker compose up -d --build
+docker compose logs -f app
+```
 
-5. **Add CSS**:
-   - Option A: Integrate Tailwind CSS
-   - Option B: Write custom CSS in `wwwroot/app.css`
+nginx-proxy must be connected to the app's docker network and configured with
+WebSocket support (Blazor SignalR). The exact host, deploy path, SSH access, and
+nginx config live in the internal ops notes (kept out of this public repo).
 
-6. **Test Locally**:
-   ```bash
-   dotnet run
-   # Open https://localhost:5001
-   ```
+## 📚 Documentation
 
-### Option 2: Use HTML/JS Frontend (4-6 hours - FASTER)
-
-The APIs are complete and working. You could:
-
-1. Create simple HTML pages in `wwwroot/`
-2. Use vanilla JavaScript or React
-3. Call the existing API endpoints:
-   - POST `/api/upload/initiate`
-   - POST `/api/upload/chunk`
-   - POST `/api/upload/complete`
-   - GET `/api/download/{shareId}`
-   - POST `/api/share/email`
-   - etc.
-
-4. Use Azure AD MSAL.js for authentication
-
-This avoids Blazor file upload complexity entirely.
-
-### Option 3: Fix Next.js App (2-3 hours - EASIEST)
-
-The Next.js app was 95% working. Issues were:
-- Middleware redirect (fixable)
-- Prisma sync (already have schema)
-- Azure AD app (NOW DOCUMENTED!)
-
-You could just:
-1. Use the documented Azure AD app
-2. Fix middleware exclude paths
-3. Accept that env changes need rebuild
-
-## 📦 Files Created
-
-### Data Models
-- `Data/Models/User.cs`
-- `Data/Models/ShareLink.cs`
-- `Data/Models/FileModel.cs`
-- `Data/Models/AuditLog.cs`
-- `Data/ApplicationDbContext.cs`
-
-### Services
-- `Services/S3Service.cs`
-- `Services/EmailService.cs`
-- `Services/AuthService.cs`
-
-### Controllers
-- `Controllers/UploadController.cs`
-- `Controllers/DownloadController.cs`
-- `Controllers/ShareController.cs`
-- `Controllers/AdminController.cs`
-
-### Pages
-- `Components/Pages/Dashboard.razor` (partial)
-
-### Configuration
-- `Program.cs` (updated)
-- `appsettings.json` (complete)
-- `Dockerfile`
-- `docker-compose.yml`
-- `.env.example`
-
-### Documentation
-- `REQUIREMENTS.md`
-- `COMPLETION-STATUS.md`
-- `README.md` (this file)
-
-## 🧪 Testing Checklist
-
-Before deployment:
-
-- [ ] `dotnet build` succeeds
-- [ ] `dotnet ef migrations add` works
-- [ ] `dotnet run` starts without errors
-- [ ] Can login with Azure AD
-- [ ] Can upload file (even small one)
-- [ ] Can download file
-- [ ] Can send email
-- [ ] Admin panel shows logs (for lacy@aspendora.com)
-
-## 🐳 Deployment to Production
-
-1. **Create .env file**:
-   ```bash
-   cd /Users/lacy/code/defiant/file-share-blazor
-   cp .env.example .env
-   nano .env  # Set POSTGRES_PASSWORD
-   ```
-
-2. **Copy to server**:
-   ```bash
-   scp -r /Users/lacy/code/defiant/file-share-blazor root@[prod-host]:/opt/
-   ```
-
-3. **On server**:
-   ```bash
-   cd [deploy-path]
-   docker compose up -d
-   docker logs file-share-blazor -f
-   ```
-
-4. **Configure nginx** (see COMPLETION-STATUS.md for config)
-
-5. **Connect nginx-proxy to network**:
-   ```bash
-   docker network connect aspendora-net nginx-proxy
-   docker exec nginx-proxy nginx -s reload
-   ```
-
-## 🆘 If You Get Stuck
-
-1. **Check COMPLETION-STATUS.md** - Has detailed troubleshooting
-2. **Check Next.js app** - It was 95% working, might be faster to fix
-3. **Use APIs with different frontend** - Backend is solid
-4. **Original requirements** - REQUIREMENTS.md has everything
-
-## 📊 Quick Stats
-
-- **Lines of C# code**: ~2,500
-- **API endpoints**: 8 (all functional)
-- **Database models**: 4
-- **Services**: 3
-- **Time invested**: ~6 hours
-- **Time to finish**: 4-12 hours (depending on approach)
-
-## 💡 Recommendation
-
-**If you need it working ASAP**: Go with Option 3 (fix Next.js) - 2-3 hours
-
-**If you want better architecture**: Go with Option 2 (HTML/JS + APIs) - 4-6 hours
-
-**If you want full Blazor**: Go with Option 1 (finish Blazor) - 8-12 hours
+- **[REQUIREMENTS.md](REQUIREMENTS.md)** — functional requirements
+- **[COMPLETION-STATUS.md](COMPLETION-STATUS.md)** — detailed feature/deploy status
+- **[docs/feature-file-requests.md](docs/feature-file-requests.md)** — File Requests design
+- **[docs/secrets-required.md](docs/secrets-required.md)** — required secrets
+- **[docs/claude-runlog.md](docs/claude-runlog.md)** — full execution / deploy log
 
 ---
 
-**Last Updated**: 2025-11-29
-**Version**: 0.7.0 (Backend complete, Frontend partial)
-**Next Session**: Pick an option above and continue from there
+**Version**: 1.0.0 — Complete, deployed, with File Requests
+**Last Updated**: 2026-06-09
