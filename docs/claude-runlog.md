@@ -398,5 +398,18 @@ For production, set these via environment variables:
 - Synced source via rsync (no --delete) to `[deploy-path]/AspendoraFileShare/`; left `.env` and live `docker-compose.yml` untouched.
 - `docker compose up -d --build` on the production VM (reached via `ssh [deploy-host]`, ProxyJump [jump-host]).
 - efbundle applied migration `20260607212414_AddFileRequests` (logged "Applying migration… Done.").
-- Verified: `FileRequests` table created; `ShareLinks` has FileRequestId/SubmitterName/SubmitterEmail; app "Now listening"; internal `http://localhost:3001/`=200; external `https://share.aspendora.com/`=200; anonymous `/r/{id}`=200 (no login redirect); `GET /api/filerequest/public/{unknown}`=404 JSON.
+- Verified: `FileRequests` table created; `ShareLinks` has FileRequestId/SubmitterName/SubmitterEmail; app "Now listening"; internal app port=200; external `https://share.aspendora.com/`=200; anonymous `/r/{id}`=200 (no login redirect); `GET /api/filerequest/public/{unknown}`=404 JSON.
 - **DEPLOY COMPLETE.**
+
+---
+
+### Public-repo scrub + history rewrite — 2026-06-09
+- **Goal**: This repo is public on GitHub. Remove production infra/recon detail from tracked files AND from all git history.
+- **What was scrubbed** (tree + every commit, via `git filter-repo --replace-text`/`--replace-message`):
+  - Public server IP, internal server IP, `docker.aspendora.com`, jump-host name, SSH alias, `/opt/...` deploy paths, "VM 301" → replaced with readable tokens (`[prod-host]`, `[deploy-path]`, `[jump-host]`, `[deploy-host]`, "the production VM").
+  - One commit message (`Record file-requests deploy to VM 301`) rewritten.
+- **Left intentionally** (non-secret, app needs them, public during OAuth/discovery): Azure AD Client ID + Tenant IDs, B2 endpoint/bucket name, docker network/container names.
+- **No actual secrets** (passwords/keys/tokens) were ever present in tracked files; `.env.example`/`appsettings.json` use `${...}` placeholders overridden by env at runtime.
+- **Method**: backup bundle at `/tmp/aspendora-file-share-backup-pre-scrub.bundle`; ran filter-repo on a fresh clone; `git push --force origin master` (`6074657` → `d0feec8`); reset main working repo + GC'd old objects.
+- **Residual caveat**: GitHub may retain pre-rewrite commit objects (old SHAs, merged PR #1 refs) accessible by direct SHA URL until GitHub garbage-collects them. Contact GitHub Support to purge if needed. Mitigated in practice by treating the host as already-known (these are infra facts, not rotatable credentials).
+- **DONE.**
