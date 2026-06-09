@@ -129,6 +129,197 @@ Note: This link will expire in 30 days.
     }
 
     /// <summary>
+    /// Send a "please upload files" invitation to the person a file request targets.
+    /// </summary>
+    public async Task SendFileRequestEmailAsync(
+        string recipientEmail,
+        string recipientName,
+        string requesterName,
+        string requesterEmail,
+        string requestUrl,
+        string title,
+        string? customMessage,
+        DateTime expiresAt)
+    {
+        _logger.LogInformation("SendFileRequestEmailAsync: to={RecipientEmail}, from={RequesterEmail}, url={RequestUrl}",
+            recipientEmail, requesterEmail, requestUrl);
+
+        var messageHtml = "";
+        if (!string.IsNullOrWhiteSpace(customMessage))
+        {
+            messageHtml = $@"
+                <div style='margin: 24px 0; padding: 16px; border-left: 4px solid #660000; background-color: #f9fafb;'>
+                    <p style='margin: 0; color: #374151; font-style: italic;'>{System.Net.WebUtility.HtmlEncode(customMessage)}</p>
+                </div>";
+        }
+
+        var logoUrl = "https://share.aspendora.com/aspendora-logo.png";
+        var safeTitle = System.Net.WebUtility.HtmlEncode(title);
+
+        var htmlBody = $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+</head>
+<body style='font-family: -apple-system, BlinkMacSystemFont, ""Segoe UI"", Roboto, ""Helvetica Neue"", Arial, sans-serif; line-height: 1.6; color: #374151;'>
+    <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+        <div style='text-align: center; margin-bottom: 32px;'>
+            <img src='{logoUrl}' alt='Aspendora Technologies' style='height: 64px; width: auto;' />
+            <h1 style='color: #660000; margin-top: 16px;'>Aspendora File Share</h1>
+        </div>
+
+        <div style='background-color: #ffffff; border: 2px solid #660000; border-radius: 8px; padding: 32px;'>
+            <h2 style='color: #111827; margin-top: 0;'>Howdy,</h2>
+            <p style='font-size: 16px; color: #374151;'>
+                <strong>{System.Net.WebUtility.HtmlEncode(requesterName)}</strong> is requesting files from you via Aspendora File Share.
+            </p>
+            <div style='margin: 16px 0; padding: 16px; background-color: #f9fafb; border-radius: 8px;'>
+                <p style='margin: 0; color: #111827; font-weight: 600;'>{safeTitle}</p>
+            </div>
+            {messageHtml}
+            <div style='text-align: center; margin: 32px 0;'>
+                <a href='{requestUrl}' style='display: inline-block; background-color: #660000; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;'>
+                    Upload Files
+                </a>
+            </div>
+            <p style='font-size: 14px; color: #6b7280; margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e7eb;'>
+                No account is required. This request expires on {expiresAt.ToLocalTime():MMMM dd, yyyy}.
+            </p>
+        </div>
+
+        <div style='text-align: center; margin-top: 32px; font-size: 14px; color: #9ca3af;'>
+            <p>© {DateTime.UtcNow.Year} Aspendora Technologies</p>
+        </div>
+    </div>
+</body>
+</html>";
+
+        var textBody = $@"Howdy,
+
+{requesterName} is requesting files from you via Aspendora File Share.
+
+Request: {title}
+{(string.IsNullOrWhiteSpace(customMessage) ? "" : $"Message: {customMessage}\n")}
+Upload your files here (no account required): {requestUrl}
+
+This request expires on {expiresAt.ToLocalTime():MMMM dd, yyyy}.
+
+© {DateTime.UtcNow.Year} Aspendora Technologies";
+
+        var request = new Smtp2GoRequest
+        {
+            ApiKey = _apiKey,
+            To = new[] { recipientEmail },
+            Sender = $"{requesterName} <{requesterEmail}>",
+            Subject = $"{requesterName} is requesting files from you via Aspendora",
+            HtmlBody = htmlBody,
+            TextBody = textBody
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(_apiUrl, request);
+        var responseContent = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("SMTP2GO API error (file request): {StatusCode} - {Response}", response.StatusCode, responseContent);
+            throw new HttpRequestException($"SMTP2GO API returned {response.StatusCode}: {responseContent}");
+        }
+
+        _logger.LogInformation("File request email sent to {Email}", recipientEmail);
+    }
+
+    /// <summary>
+    /// Notify the requester that someone uploaded files to their file request.
+    /// </summary>
+    public async Task SendFileRequestReceivedEmailAsync(
+        string requesterEmail,
+        string requesterName,
+        string title,
+        string submitterName,
+        string downloadUrl,
+        List<(string FileName, long FileSize)> files)
+    {
+        var fileListHtml = string.Join("", files.Select(f =>
+            $"<li style='padding: 8px 0; border-bottom: 1px solid #e5e7eb;'><strong>{System.Net.WebUtility.HtmlEncode(f.FileName)}</strong> - {FormatBytes(f.FileSize)}</li>"));
+
+        var logoUrl = "https://share.aspendora.com/aspendora-logo.png";
+        var safeTitle = System.Net.WebUtility.HtmlEncode(title);
+        var safeSubmitter = System.Net.WebUtility.HtmlEncode(submitterName);
+
+        var htmlBody = $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+</head>
+<body style='font-family: -apple-system, BlinkMacSystemFont, ""Segoe UI"", Roboto, ""Helvetica Neue"", Arial, sans-serif; line-height: 1.6; color: #374151;'>
+    <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+        <div style='text-align: center; margin-bottom: 32px;'>
+            <img src='{logoUrl}' alt='Aspendora Technologies' style='height: 64px; width: auto;' />
+            <h1 style='color: #660000; margin-top: 16px;'>Aspendora File Share</h1>
+        </div>
+
+        <div style='background-color: #ffffff; border: 2px solid #660000; border-radius: 8px; padding: 32px;'>
+            <h2 style='color: #111827; margin-top: 0;'>You've received files</h2>
+            <p style='font-size: 16px; color: #374151;'>
+                <strong>{safeSubmitter}</strong> uploaded {files.Count} file(s) to your request:
+            </p>
+            <div style='margin: 16px 0; padding: 16px; background-color: #f9fafb; border-radius: 8px;'>
+                <p style='margin: 0; color: #111827; font-weight: 600;'>{safeTitle}</p>
+            </div>
+            <h3 style='color: #111827; margin-top: 24px;'>Files ({files.Count}):</h3>
+            <ul style='list-style: none; padding: 0; margin: 16px 0;'>
+                {fileListHtml}
+            </ul>
+            <div style='text-align: center; margin: 32px 0;'>
+                <a href='{downloadUrl}' style='display: inline-block; background-color: #660000; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;'>
+                    Download Files
+                </a>
+            </div>
+        </div>
+
+        <div style='text-align: center; margin-top: 32px; font-size: 14px; color: #9ca3af;'>
+            <p>© {DateTime.UtcNow.Year} Aspendora Technologies</p>
+        </div>
+    </div>
+</body>
+</html>";
+
+        var textBody = $@"You've received files
+
+{submitterName} uploaded {files.Count} file(s) to your request: {title}
+
+Files:
+{string.Join("\n", files.Select(f => $"- {f.FileName} ({FormatBytes(f.FileSize)})"))}
+
+Download the files: {downloadUrl}
+
+© {DateTime.UtcNow.Year} Aspendora Technologies";
+
+        var request = new Smtp2GoRequest
+        {
+            ApiKey = _apiKey,
+            To = new[] { requesterEmail },
+            Sender = "Aspendora File Share <notifications@aspendora.com>",
+            Subject = $"You received {files.Count} file(s) for \"{title}\"",
+            HtmlBody = htmlBody,
+            TextBody = textBody
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(_apiUrl, request);
+        var responseContent = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("SMTP2GO API error (request received): {StatusCode} - {Response}", response.StatusCode, responseContent);
+            throw new HttpRequestException($"SMTP2GO API returned {response.StatusCode}: {responseContent}");
+        }
+
+        _logger.LogInformation("File-request-received email sent to {Email}", requesterEmail);
+    }
+
+    /// <summary>
     /// Send weekly report email
     /// </summary>
     public async Task SendReportEmailAsync(string recipientEmail, string subject, string htmlBody)

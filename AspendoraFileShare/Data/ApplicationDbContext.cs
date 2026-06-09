@@ -12,6 +12,7 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<ShareLink> ShareLinks { get; set; } = null!;
+    public DbSet<FileRequest> FileRequests { get; set; } = null!;
     public DbSet<FileModel> Files { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
 
@@ -28,6 +29,10 @@ public class ApplicationDbContext : DbContext
                   .WithOne(e => e.User)
                   .HasForeignKey(e => e.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.FileRequests)
+                  .WithOne(e => e.User)
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.AuditLogs)
                   .WithOne(e => e.User)
                   .HasForeignKey(e => e.UserId)
@@ -40,10 +45,24 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.ShortId).IsUnique();
+            entity.HasIndex(e => e.FileRequestId);
             entity.HasMany(e => e.Files)
                   .WithOne(e => e.ShareLink)
                   .HasForeignKey(e => e.ShareLinkId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.FileRequest)
+                  .WithMany(e => e.Submissions)
+                  .HasForeignKey(e => e.FileRequestId)
+                  .IsRequired(false)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // FileRequest configuration
+        modelBuilder.Entity<FileRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ShortId).IsUnique();
+            entity.HasIndex(e => e.UserId);
         });
 
         // FileModel configuration
